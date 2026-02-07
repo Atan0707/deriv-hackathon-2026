@@ -1,6 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Table,
   TableBody,
@@ -9,6 +8,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { authClient } from '@/lib/auth-client'
+import { AuthDialog } from '@/components/AuthDialog'
 
 export const Route = createFileRoute('/')({
   component: App,
@@ -26,6 +27,32 @@ const portfolioData = {
 }
 
 function App() {
+  const { data: session, isPending } = authClient.useSession()
+
+  if (isPending) {
+    return (
+      <div className="container mx-auto p-6 max-w-7xl flex items-center justify-center min-h-[60vh]">
+        <p className="text-lg text-muted-foreground">Loading...</p>
+      </div>
+    )
+  }
+
+  if (!session) {
+    return (
+      <div className="container mx-auto p-6 max-w-7xl flex items-center justify-center min-h-[60vh]">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6 text-center space-y-6">
+            <h2 className="text-2xl font-bold">Authentication Required</h2>
+            <p className="text-muted-foreground">
+              Please log in first to view your portfolio.
+            </p>
+            <AuthDialog />
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   return (
     <div className="container mx-auto p-6 max-w-7xl">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
