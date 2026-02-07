@@ -13,7 +13,7 @@ export default function FloatingLogout() {
   if (!session) return null
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-white/80 backdrop-blur-lg rounded-full px-4 py-2 border border-gray-200/50 shadow-lg">
+    <div className="fixed bottom-6 left-6 z-50 flex items-center gap-3 bg-white/80 backdrop-blur-lg rounded-full px-4 py-2 border border-gray-200/50 shadow-lg">
       <span className="text-sm text-gray-700">
         {session.user.name || session.user.email}
       </span>
