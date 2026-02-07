@@ -52,8 +52,8 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body>
+        <Header />
         <SwarmSidebarProvider>
-          <Header />
           {children}
         </SwarmSidebarProvider>
         <FloatingLogout />
