@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   createChart,
   CandlestickSeries,
@@ -15,60 +16,54 @@ interface TradingViewChartProps {
   height?: number
 }
 
-// Generate sample historical candlestick data
-function generateCandlestickData(symbol: string): CandlestickData<Time>[] {
-  const data: CandlestickData<Time>[] = []
-  const now = new Date()
-  let price = symbol.includes('Bitcoin')
-    ? 45000
-    : symbol.includes('Ethereum')
-      ? 3200
-      : symbol.includes('Solana')
-        ? 150
-        : symbol.includes('Ripple')
-          ? 0.5
-          : symbol.includes('Cardano')
-            ? 0.45
-            : symbol.includes('Dogecoin')
-              ? 0.08
-              : symbol.includes('Polkadot')
-                ? 7.2
-                : 0.85
+// Map instrument names to CoinGecko coin IDs
+const COINGECKO_ID_MAP: Record<string, string> = {
+  Bitcoin: 'bitcoin',
+  Ethereum: 'ethereum',
+  Solana: 'solana',
+  Ripple: 'ripple',
+  Cardano: 'cardano',
+  Dogecoin: 'dogecoin',
+  Polkadot: 'polkadot',
+  Polygon: 'matic-network',
+}
 
-  for (let i = 0; i < 500; i++) {
-    const date = new Date(now)
-    date.setHours(date.getHours() - (500 - i))
 
-    const volatility = price * 0.02
-    const change = (Math.random() - 0.5) * volatility
+async function fetchCandlestickData(symbol: string): Promise<CandlestickData<Time>[]> {
+  const coinId = COINGECKO_ID_MAP[symbol] || 'bitcoin'
+  const apiKey = import.meta.env.VITE_COINGECKO_API_KEY
 
-    const open = price
-    const close = price + change
-    const high = Math.max(open, close) + Math.random() * volatility * 0.5
-    const low = Math.min(open, close) - Math.random() * volatility * 0.5
+  const response = await fetch(
+    `https://api.coingecko.com/api/v3/coins/${coinId}/ohlc?vs_currency=usd&days=30&precision=full&x_cg_demo_api_key=${apiKey}`
+  )
 
-    data.push({
-      time: (Math.floor(date.getTime() / 1000)) as Time,
-      open,
-      high,
-      low,
-      close,
-    })
-    price = close
+  if (!response.ok) {
+    throw new Error(`CoinGecko API error: ${response.status}`)
   }
 
-  return data
+  // CoinGecko OHLC format: [[timestamp_ms, open, high, low, close], ...]
+  const ohlc: number[][] = await response.json()
+
+  return ohlc.map((candle) => ({
+    time: (Math.floor(candle[0] / 1000)) as Time,
+    open: candle[1],
+    high: candle[2],
+    low: candle[3],
+    close: candle[4],
+  }))
 }
 
 export function TradingViewChart({ symbol = 'Bitcoin', height = 400 }: TradingViewChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
+  // Create chart once on mount
   useEffect(() => {
     if (!chartContainerRef.current) return
 
-    // Create chart
     const chart = createChart(chartContainerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
@@ -95,7 +90,6 @@ export function TradingViewChart({ symbol = 'Bitcoin', height = 400 }: TradingVi
 
     chartRef.current = chart
 
-    // Add candlestick series using v5 API
     const series = chart.addSeries(CandlestickSeries, {
       upColor: '#22c55e',
       downColor: '#ef4444',
@@ -106,13 +100,6 @@ export function TradingViewChart({ symbol = 'Bitcoin', height = 400 }: TradingVi
     })
     seriesRef.current = series
 
-    // Set candlestick data
-    series.setData(generateCandlestickData(symbol))
-
-    // Fit content to view
-    chart.timeScale().fitContent()
-
-    // Handle resize
     const handleResize = () => {
       if (chartContainerRef.current && chartRef.current) {
         chartRef.current.applyOptions({
@@ -123,7 +110,6 @@ export function TradingViewChart({ symbol = 'Bitcoin', height = 400 }: TradingVi
 
     window.addEventListener('resize', handleResize)
 
-    // Cleanup
     return () => {
       window.removeEventListener('resize', handleResize)
       if (chartRef.current) {
@@ -131,7 +117,81 @@ export function TradingViewChart({ symbol = 'Bitcoin', height = 400 }: TradingVi
         chartRef.current = null
       }
     }
-  }, [height, symbol])
+  }, [height])
 
-  return <div ref={chartContainerRef} className="w-full rounded-lg" />
+  // Fetch data when symbol changes and update the series
+  useEffect(() => {
+    if (!seriesRef.current || !chartRef.current) return
+
+    let cancelled = false
+    setIsLoading(true)
+    setError(null)
+
+    fetchCandlestickData(symbol)
+      .then((data) => {
+        if (cancelled) return
+        seriesRef.current?.setData(data)
+        chartRef.current?.timeScale().fitContent()
+        setIsLoading(false)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        console.error('Failed to fetch candlestick data:', err)
+        setError('Failed to load chart data')
+        setIsLoading(false)
+      })
+
+    // Set up periodic updates — refetch OHLC data every 60 seconds
+    // CoinGecko OHLC cache updates every 15 minutes, so 60s is a reasonable poll interval
+    const interval = setInterval(async () => {
+      try {
+        const coinId = COINGECKO_ID_MAP[symbol] || 'bitcoin'
+        const apiKey = import.meta.env.VITE_COINGECKO_API_KEY
+        const response = await fetch(
+          `https://api.coingecko.com/api/v3/coins/${coinId}/ohlc?vs_currency=usd&days=1&precision=full&x_cg_demo_api_key=${apiKey}`
+        )
+        if (!response.ok) return
+        const ohlc: number[][] = await response.json()
+        const latest = ohlc[ohlc.length - 1]
+        if (latest && seriesRef.current) {
+          seriesRef.current.update({
+            time: (Math.floor(latest[0] / 1000)) as Time,
+            open: latest[1],
+            high: latest[2],
+            low: latest[3],
+            close: latest[4],
+          })
+        }
+      } catch {
+        // Silently ignore live update errors
+      }
+    }, 60000)
+
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [symbol])
+
+  return (
+    <div className="relative w-full rounded-lg">
+      <div ref={chartContainerRef} className="w-full rounded-lg" />
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-white/60 rounded-lg">
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            Loading chart data...
+          </div>
+        </div>
+      )}
+      {error && (
+        <div className="absolute inset-0 flex items-center justify-center bg-white/80 rounded-lg">
+          <p className="text-sm text-red-500">{error}</p>
+        </div>
+      )}
+    </div>
+  )
 }
