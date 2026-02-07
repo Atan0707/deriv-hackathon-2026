@@ -88,22 +88,22 @@ function App() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead className="text-right">Balance</TableHead>
-                  <TableHead className="text-right">Current Price</TableHead>
-                  <TableHead className="text-right">Value</TableHead>
-                  <TableHead className="text-right">P&L</TableHead>
+                  <TableHead className="w-[15%]">Name</TableHead>
+                  <TableHead className="w-[20%] text-right">Balance</TableHead>
+                  <TableHead className="w-[20%] text-right">Current Price</TableHead>
+                  <TableHead className="w-[20%] text-right">Value</TableHead>
+                  <TableHead className="w-[25%] text-right">P&L</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {portfolioData.holdings.map((holding) => (
                   <TableRow key={holding.name}>
                     <TableCell className="font-medium">{holding.name}</TableCell>
-                    <TableCell className="text-right">{holding.balance}</TableCell>
-                    <TableCell className="text-right">${holding.currentPrice.toLocaleString()}</TableCell>
-                    <TableCell className="text-right">${holding.value.toLocaleString()}</TableCell>
-                    <TableCell className={`text-right font-semibold ${holding.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      ${holding.pnl.toLocaleString()}
+                    <TableCell className="text-right tabular-nums">{holding.balance}</TableCell>
+                    <TableCell className="text-right tabular-nums">${holding.currentPrice.toLocaleString()}</TableCell>
+                    <TableCell className="text-right tabular-nums">${holding.value.toLocaleString()}</TableCell>
+                    <TableCell className={`text-right font-semibold tabular-nums ${holding.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {holding.pnl >= 0 ? '+' : ''}${holding.pnl.toLocaleString()}
                     </TableCell>
                   </TableRow>
                 ))}
