@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/table'
 import { authClient } from '@/lib/auth-client'
 import { AuthDialog } from '@/components/AuthDialog'
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 
 export const Route = createFileRoute('/')({
   component: App,
@@ -43,38 +43,39 @@ const HOLDINGS_DATA: Omit<Holding, 'currentPrice'>[] = [
   { name: 'xrp', balance: 5000, value: 2500, pnl: -500 },
 ]
 
+// Fetcher function for TanStack Query
+async function fetchPrices(): Promise<PriceData> {
+  const coinIds = Object.values(COIN_MAP).join(',')
+  const apiKey = import.meta.env.VITE_COINGECKO_API_KEY
+  const response = await fetch(
+    `https://api.coingecko.com/api/v3/simple/price?ids=${coinIds}&vs_currencies=usd&x_cg_demo_api_key=${apiKey}`
+  )
+  if (!response.ok) {
+    throw new Error('Failed to fetch prices')
+  }
+  return response.json()
+}
+
 function App() {
   const { data: session, isPending } = authClient.useSession()
-  const [holdings, setHoldings] = useState<Holding[]>([])
-  const [isLoadingPrices, setIsLoadingPrices] = useState(true)
 
-  useEffect(() => {
-    async function fetchPrices() {
-      try {
-        const coinIds = Object.values(COIN_MAP).join(',')
-        const apiKey = import.meta.env.VITE_COINGECKO_API_KEY
-        const response = await fetch(
-          `https://api.coingecko.com/api/v3/simple/price?ids=${coinIds}&vs_currencies=usd&x_cg_demo_api_key=${apiKey}`
-        )
-        const data: PriceData = await response.json()
+  // Use TanStack Query with caching
+  const { data: priceData, isLoading: isLoadingPrices } = useQuery({
+    queryKey: ['crypto-prices'],
+    queryFn: fetchPrices,
+    staleTime: 60000, // Cache for 1 minute
+    gcTime: 300000, // Keep in cache for 5 minutes
+    refetchInterval: 60000, // Refetch every minute
+  })
 
-        // Update holdings with current price from API
-        const holdingsWithPrices = HOLDINGS_DATA.map((holding) => {
-          const coinId = COIN_MAP[holding.name]
-          const currentPrice = data[coinId]?.usd || 0
-          return { ...holding, currentPrice }
-        })
-
-        setHoldings(holdingsWithPrices)
-      } catch (error) {
-        console.error('Failed to fetch prices:', error)
-      } finally {
-        setIsLoadingPrices(false)
-      }
-    }
-
-    fetchPrices()
-  }, [])
+  // Calculate holdings with current prices
+  const holdings = priceData
+    ? HOLDINGS_DATA.map((holding) => {
+        const coinId = COIN_MAP[holding.name]
+        const currentPrice = priceData[coinId]?.usd || 0
+        return { ...holding, currentPrice }
+      })
+    : []
 
   // Calculate totals from hardcoded data
   const networth = HOLDINGS_DATA.reduce((sum, h) => sum + h.value, 0)
