@@ -8,6 +8,7 @@ import { TanStackDevtools } from '@tanstack/react-devtools'
 
 import Header from '../components/Header'
 import FloatingLogout from '../components/FloatingLogout'
+import { SwarmSidebarProvider } from '../components/SwarmSidebar'
 
 import TanStackQueryDevtools from '../integrations/tanstack-query/devtools'
 
@@ -51,8 +52,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        <Header />
-        {children}
+        <SwarmSidebarProvider>
+          <Header />
+          {children}
+        </SwarmSidebarProvider>
         <FloatingLogout />
         <TanStackDevtools
           config={{
