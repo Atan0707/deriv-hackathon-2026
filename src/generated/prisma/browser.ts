@@ -18,7 +18,32 @@ export { Prisma }
 export * as $Enums from './enums.ts'
 export * from './enums.ts';
 /**
- * Model Todo
+ * Model BuyAndSellHistory
  * 
  */
-export type Todo = Prisma.TodoModel
+export type BuyAndSellHistory = Prisma.BuyAndSellHistoryModel
+/**
+ * Model account
+ * 
+ */
+export type account = Prisma.accountModel
+/**
+ * Model session
+ * 
+ */
+export type session = Prisma.sessionModel
+/**
+ * Model user
+ * 
+ */
+export type user = Prisma.userModel
+/**
+ * Model verification
+ * 
+ */
+export type verification = Prisma.verificationModel
+/**
+ * Model wallet
+ * 
+ */
+export type wallet = Prisma.walletModel

@@ -28,22 +28,36 @@ export function AuthDialog() {
 
     try {
       if (isLogin) {
-        await authClient.signIn.email({
+        const result = await authClient.signIn.email({
           email,
           password,
         })
+        
+        if (result.error) {
+          setError(result.error.message || 'Login failed')
+          return
+        }
       } else {
-        await authClient.signUp.email({
+        const result = await authClient.signUp.email({
           email,
           password,
           name,
         })
+        
+        if (result.error) {
+          setError(result.error.message || 'Registration failed')
+          return
+        }
       }
+      
+      // Success - close dialog and reset form
       setOpen(false)
-      // Reset form
       setEmail('')
       setPassword('')
       setName('')
+      
+      // Reload to update session
+      window.location.reload()
     } catch (err: any) {
       setError(err.message || 'An error occurred')
     } finally {

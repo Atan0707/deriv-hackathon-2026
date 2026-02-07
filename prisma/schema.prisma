@@ -9,7 +9,7 @@ datasource db {
 
 model BuyAndSellHistory {
   id        Int      @id @unique @default(autoincrement())
-  userId    Int
+  userId    String
   symbol    String
   quantity  Float
   price     Float
@@ -24,7 +24,7 @@ model account {
   id                    String    @id
   accountId             String
   providerId            String
-  userId                Int
+  userId                String
   accessToken           String?
   refreshToken          String?
   idToken               String?
@@ -47,14 +47,14 @@ model session {
   updatedAt DateTime
   ipAddress String?
   userAgent String?
-  userId    Int
+  userId    String
   user      user     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
 
 model user {
-  id                Int                 @id @unique @default(autoincrement())
+  id                String              @id
   name              String
   email             String              @unique
   emailVerified     Boolean             @default(false)
@@ -80,7 +80,7 @@ model verification {
 
 model wallet {
   id        Int      @id @unique @default(autoincrement())
-  userId    Int      @unique
+  userId    String   @unique
   balance   Float
   createdAt DateTime @default(now())
   updatedAt DateTime
