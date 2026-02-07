@@ -10,7 +10,9 @@ import { authClient } from '@/lib/auth-client'
 import { AuthDialog } from '@/components/AuthDialog'
 import { TradingViewChart } from '@/components/TradingViewChart'
 import { useState, useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { executeTrade } from '@/data/trading'
+import { ensureWallet } from '@/data/wallet'
 
 export const Route = createFileRoute('/market')({
   component: Market,
@@ -67,6 +69,15 @@ function Market() {
   const [selectedInstrument, setSelectedInstrument] = useState(instruments[0])
   const [amount, setAmount] = useState('')
   const [aiContent, setAiContent] = useState('')
+  const queryClient = useQueryClient()
+
+  // Fetch wallet balance
+  const { data: walletData } = useQuery({
+    queryKey: ['wallet', session?.user?.id],
+    queryFn: () => ensureWallet({ data: { userId: session!.user.id } }),
+    enabled: !!session?.user?.id,
+    staleTime: 30000,
+  })
 
   // Fetch live prices from CoinGecko
   const { data: priceData, isLoading: isLoadingPrices } = useQuery({
@@ -75,6 +86,24 @@ function Market() {
     staleTime: 30000,
     gcTime: 300000,
     refetchInterval: 30000,
+  })
+
+  // Trade mutation
+  const tradeMutation = useMutation({
+    mutationFn: (params: {
+      userId: string
+      symbol: string
+      quantity: number
+      price: number
+      type: 'buy' | 'sell'
+    }) => executeTrade({ data: params }),
+    onSuccess: () => {
+      // Invalidate wallet and holdings queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ['wallet'] })
+      queryClient.invalidateQueries({ queryKey: ['holdings'] })
+      queryClient.invalidateQueries({ queryKey: ['trade-history'] })
+      setAmount('')
+    },
   })
 
   // Get current price for selected instrument
@@ -208,6 +237,22 @@ function Market() {
                       setAmount={setAmount}
                       estimatedTotal={estimatedTotal}
                       formatPrice={formatPrice}
+                      walletBalance={walletData?.balance ?? 0}
+                      onTrade={() => {
+                        if (!session?.user?.id || !currentPrice) return
+                        const qty = parseFloat(amount)
+                        if (!qty || qty <= 0) return
+                        tradeMutation.mutate({
+                          userId: session.user.id,
+                          symbol: TICKER_MAP[selectedInstrument],
+                          quantity: qty,
+                          price: currentPrice,
+                          type: 'buy',
+                        })
+                      }}
+                      isTrading={tradeMutation.isPending}
+                      tradeError={tradeMutation.error?.message ?? null}
+                      tradeSuccess={tradeMutation.isSuccess}
                     />
                   </TabsContent>
                   <TabsContent value="sell" className="mt-0">
@@ -220,6 +265,22 @@ function Market() {
                       setAmount={setAmount}
                       estimatedTotal={estimatedTotal}
                       formatPrice={formatPrice}
+                      walletBalance={walletData?.balance ?? 0}
+                      onTrade={() => {
+                        if (!session?.user?.id || !currentPrice) return
+                        const qty = parseFloat(amount)
+                        if (!qty || qty <= 0) return
+                        tradeMutation.mutate({
+                          userId: session.user.id,
+                          symbol: TICKER_MAP[selectedInstrument],
+                          quantity: qty,
+                          price: currentPrice,
+                          type: 'sell',
+                        })
+                      }}
+                      isTrading={tradeMutation.isPending}
+                      tradeError={tradeMutation.error?.message ?? null}
+                      tradeSuccess={tradeMutation.isSuccess}
                     />
                   </TabsContent>
                 </Tabs>
@@ -278,6 +339,11 @@ function TradingForm({
   setAmount,
   estimatedTotal,
   formatPrice,
+  walletBalance,
+  onTrade,
+  isTrading,
+  tradeError,
+  tradeSuccess,
 }: {
   side: 'buy' | 'sell'
   ticker: string
@@ -287,12 +353,25 @@ function TradingForm({
   setAmount: (v: string) => void
   estimatedTotal: number
   formatPrice: (n: number) => string
+  walletBalance: number
+  onTrade: () => void
+  isTrading: boolean
+  tradeError: string | null
+  tradeSuccess: boolean
 }) {
   const isBuy = side === 'buy'
   const presetPercentages = [25, 50, 75, 100]
 
   return (
     <div className="p-4 space-y-4">
+      {/* Wallet Balance */}
+      <div className="space-y-1">
+        <Label className="text-xs text-gray-500 uppercase tracking-wide">Wallet Balance</Label>
+        <p className="text-sm font-semibold tabular-nums">${walletBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+      </div>
+
+      <Separator />
+
       {/* Market Price */}
       <div className="space-y-1">
         <Label className="text-xs text-gray-500 uppercase tracking-wide">Market Price</Label>
@@ -328,9 +407,8 @@ function TradingForm({
             <button
               key={pct}
               onClick={() => {
-                // For demo purposes, set some preset amount
                 if (currentPrice) {
-                  const budget = 10000 // hypothetical $10k budget
+                  const budget = walletBalance
                   const qty = (budget * pct / 100) / currentPrice
                   setAmount(qty.toFixed(6))
                 }
@@ -367,6 +445,16 @@ function TradingForm({
 
       <Separator />
 
+      {/* Trade feedback */}
+      {tradeError && (
+        <p className="text-xs text-red-600 text-center font-medium">{tradeError}</p>
+      )}
+      {tradeSuccess && (
+        <p className="text-xs text-green-600 text-center font-medium">
+          Trade executed successfully!
+        </p>
+      )}
+
       {/* Submit Button */}
       <Button
         className={`w-full h-12 text-base font-semibold cursor-pointer ${
@@ -374,9 +462,10 @@ function TradingForm({
             ? 'bg-green-600 hover:bg-green-700 text-white'
             : 'bg-red-600 hover:bg-red-700 text-white'
         }`}
-        disabled={!amount || parseFloat(amount) <= 0 || currentPrice === null}
+        disabled={!amount || parseFloat(amount) <= 0 || currentPrice === null || isTrading}
+        onClick={onTrade}
       >
-        {isBuy ? 'Buy' : 'Sell'} {ticker}
+        {isTrading ? 'Processing...' : `${isBuy ? 'Buy' : 'Sell'} ${ticker}`}
       </Button>
 
       {/* Disclaimer */}

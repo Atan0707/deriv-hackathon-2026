@@ -12,15 +12,23 @@ import { authClient } from '@/lib/auth-client'
 import { AuthDialog } from '@/components/AuthDialog'
 import { useQuery } from '@tanstack/react-query'
 import { ensureWallet } from '@/data/wallet'
+import { getUserHoldings, getTradeHistory } from '@/data/trading'
+import { useMemo } from 'react'
 
 export const Route = createFileRoute('/')({
   component: App,
 })
 
-const COIN_MAP: Record<string, string> = {
-  sol: 'solana',
-  btc: 'bitcoin',
-  xrp: 'ripple',
+// Map ticker symbols to CoinGecko IDs for price fetching
+const TICKER_TO_COINGECKO: Record<string, string> = {
+  BTC: 'bitcoin',
+  ETH: 'ethereum',
+  SOL: 'solana',
+  XRP: 'ripple',
+  ADA: 'cardano',
+  DOGE: 'dogecoin',
+  DOT: 'polkadot',
+  MATIC: 'matic-network',
 }
 
 interface PriceData {
@@ -29,27 +37,13 @@ interface PriceData {
   }
 }
 
-interface Holding {
-  name: string
-  balance: number
-  currentPrice: number
-  value: number
-  pnl: number
-}
-
-// Hardcoded holdings - only currentPrice will be fetched from API
-const HOLDINGS_DATA: Omit<Holding, 'currentPrice'>[] = [
-  { name: 'sol', balance: 100, value: 15000, pnl: 2500 },
-  { name: 'btc', balance: 0.5, value: 22500, pnl: 5000 },
-  { name: 'xrp', balance: 5000, value: 2500, pnl: -500 },
-]
-
-// Fetcher function for TanStack Query
-async function fetchPrices(): Promise<PriceData> {
-  const coinIds = Object.values(COIN_MAP).join(',')
+// Fetcher function for TanStack Query - dynamically fetch prices for held coins
+async function fetchPrices(coinIds: string[]): Promise<PriceData> {
+  if (coinIds.length === 0) return {}
+  const ids = coinIds.join(',')
   const apiKey = import.meta.env.VITE_COINGECKO_API_KEY
   const response = await fetch(
-    `https://api.coingecko.com/api/v3/simple/price?ids=${coinIds}&vs_currencies=usd&x_cg_demo_api_key=${apiKey}`
+    `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&x_cg_demo_api_key=${apiKey}`,
   )
   if (!response.ok) {
     throw new Error('Failed to fetch prices')
@@ -60,7 +54,7 @@ async function fetchPrices(): Promise<PriceData> {
 function App() {
   const { data: session, isPending } = authClient.useSession()
 
-  // Ensure wallet exists for the logged-in user (creates one with 100 balance if missing)
+  // Ensure wallet exists for the logged-in user
   const { data: walletData, isLoading: isLoadingWallet } = useQuery({
     queryKey: ['wallet', session?.user?.id],
     queryFn: () => ensureWallet({ data: { userId: session!.user.id } }),
@@ -68,27 +62,70 @@ function App() {
     staleTime: 30000,
   })
 
-  // Use TanStack Query with caching
-  const { data: priceData, isLoading: isLoadingPrices } = useQuery({
-    queryKey: ['crypto-prices'],
-    queryFn: fetchPrices,
-    staleTime: 60000, // Cache for 1 minute
-    gcTime: 300000, // Keep in cache for 5 minutes
-    refetchInterval: 60000, // Refetch every minute
+  // Fetch user holdings from DB
+  const { data: holdingsData, isLoading: isLoadingHoldings } = useQuery({
+    queryKey: ['holdings', session?.user?.id],
+    queryFn: () => getUserHoldings({ data: { userId: session!.user.id } }),
+    enabled: !!session?.user?.id,
+    staleTime: 30000,
   })
 
-  // Calculate holdings with current prices
-  const holdings = priceData
-    ? HOLDINGS_DATA.map((holding) => {
-        const coinId = COIN_MAP[holding.name]
-        const currentPrice = priceData[coinId]?.usd || 0
-        return { ...holding, currentPrice }
-      })
-    : []
+  // Fetch trade history
+  const { data: tradeHistory, isLoading: isLoadingHistory } = useQuery({
+    queryKey: ['trade-history', session?.user?.id],
+    queryFn: () => getTradeHistory({ data: { userId: session!.user.id } }),
+    enabled: !!session?.user?.id,
+    staleTime: 30000,
+  })
 
-  // Calculate totals from hardcoded data
-  const networth = HOLDINGS_DATA.reduce((sum, h) => sum + h.value, 0)
-  const holdingsPnl = HOLDINGS_DATA.reduce((sum, h) => sum + h.pnl, 0)
+  // Determine which CoinGecko IDs to fetch prices for
+  const coinIdsToFetch = useMemo(() => {
+    if (!holdingsData || holdingsData.length === 0) return []
+    return holdingsData
+      .map((h) => TICKER_TO_COINGECKO[h.symbol])
+      .filter(Boolean)
+  }, [holdingsData])
+
+  // Fetch live prices for held coins
+  const { data: priceData, isLoading: isLoadingPrices } = useQuery({
+    queryKey: ['crypto-prices', coinIdsToFetch],
+    queryFn: () => fetchPrices(coinIdsToFetch),
+    enabled: coinIdsToFetch.length > 0,
+    staleTime: 60000,
+    gcTime: 300000,
+    refetchInterval: 60000,
+  })
+
+  // Combine holdings with live prices
+  const enrichedHoldings = useMemo(() => {
+    if (!holdingsData) return []
+    return holdingsData.map((h) => {
+      const coinId = TICKER_TO_COINGECKO[h.symbol]
+      const currentPrice = priceData?.[coinId]?.usd ?? 0
+      const currentValue = h.quantity * currentPrice
+      const pnl = currentValue - h.totalCost
+      return {
+        symbol: h.symbol,
+        quantity: h.quantity,
+        avgBuyPrice: h.avgBuyPrice,
+        currentPrice,
+        currentValue,
+        totalCost: h.totalCost,
+        pnl,
+      }
+    })
+  }, [holdingsData, priceData])
+
+  // Calculate portfolio totals
+  const networth = useMemo(() => {
+    return enrichedHoldings.reduce((sum, h) => sum + h.currentValue, 0)
+  }, [enrichedHoldings])
+
+  const holdingsPnl = useMemo(() => {
+    return enrichedHoldings.reduce((sum, h) => sum + h.pnl, 0)
+  }, [enrichedHoldings])
+
+  const isLoading = isLoadingHoldings || isLoadingPrices
 
   if (isPending) {
     return (
@@ -122,11 +159,17 @@ function App() {
           <Card>
             <CardContent className="pt-6 space-y-6">
               <div>
-                <p className="text-sm text-muted-foreground mb-1">Wallet Balance</p>
+                <p className="text-sm text-muted-foreground mb-1">
+                  Wallet Balance
+                </p>
                 {isLoadingWallet ? (
-                  <p className="text-3xl font-bold text-muted-foreground">Loading...</p>
+                  <p className="text-3xl font-bold text-muted-foreground">
+                    Loading...
+                  </p>
                 ) : (
-                  <p className="text-3xl font-bold">${walletData?.balance?.toLocaleString() ?? '0'}</p>
+                  <p className="text-3xl font-bold">
+                    ${walletData?.balance?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}
+                  </p>
                 )}
               </div>
             </CardContent>
@@ -135,19 +178,30 @@ function App() {
             <CardContent className="pt-6 space-y-6">
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Networth</p>
-                {isLoadingPrices ? (
-                  <p className="text-3xl font-bold text-muted-foreground">Loading...</p>
+                {isLoading ? (
+                  <p className="text-3xl font-bold text-muted-foreground">
+                    Loading...
+                  </p>
                 ) : (
-                  <p className="text-3xl font-bold">${networth.toLocaleString()}</p>
+                  <p className="text-3xl font-bold">
+                    ${networth.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
                 )}
               </div>
               <div>
-                <p className="text-sm text-muted-foreground mb-1">Holdings P&L</p>
-                {isLoadingPrices ? (
-                  <p className="text-3xl font-bold text-muted-foreground">Loading...</p>
+                <p className="text-sm text-muted-foreground mb-1">
+                  Holdings P&L
+                </p>
+                {isLoading ? (
+                  <p className="text-3xl font-bold text-muted-foreground">
+                    Loading...
+                  </p>
                 ) : (
-                  <p className={`text-3xl font-bold ${holdingsPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {holdingsPnl >= 0 ? '+' : ''}{holdingsPnl < 0 ? '-' : ''}${Math.abs(holdingsPnl).toLocaleString()}
+                  <p
+                    className={`text-3xl font-bold ${holdingsPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}
+                  >
+                    {holdingsPnl >= 0 ? '+' : '-'}$
+                    {Math.abs(holdingsPnl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 )}
               </div>
@@ -155,7 +209,7 @@ function App() {
           </Card>
         </div>
 
-        {/* Right Column - Portfolio and Market */}
+        {/* Right Column - Portfolio and Recent Trades */}
         <div className="lg:col-span-2 space-y-6">
           {/* Portfolio Section */}
           <Card>
@@ -163,24 +217,75 @@ function App() {
               <CardTitle>Portfolio</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="aspect-square rounded-full border-4 border-primary mx-auto max-w-[200px] flex items-center justify-center">
-                <div className="text-center">
-                  <p className="text-sm text-muted-foreground">Pi Chart</p>
-                  <p className="text-xs text-muted-foreground">Holdings</p>
+              {enrichedHoldings.length === 0 && !isLoading ? (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">No holdings yet. Go to the Market page to start trading!</p>
                 </div>
-              </div>
+              ) : (
+                <div className="aspect-square rounded-full border-4 border-primary mx-auto max-w-[200px] flex items-center justify-center">
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground">Pi Chart</p>
+                    <p className="text-xs text-muted-foreground">Holdings</p>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
-          {/* Market Section */}
+          {/* Recent Trades */}
           <Card>
             <CardHeader>
-              <CardTitle>Market</CardTitle>
+              <CardTitle>Recent Trades</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-center p-8">
-                <p className="text-muted-foreground">Market Analysis based on Holdings</p>
-              </div>
+              {isLoadingHistory ? (
+                <p className="text-center text-muted-foreground py-4">Loading...</p>
+              ) : !tradeHistory || tradeHistory.length === 0 ? (
+                <p className="text-center text-muted-foreground py-4">No trades yet.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Symbol</TableHead>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead className="text-right">Price</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {tradeHistory.slice(0, 10).map((trade) => (
+                      <TableRow key={trade.id}>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {new Date(trade.createdAt).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                              trade.type === 'buy'
+                                ? 'bg-green-100 text-green-700'
+                                : 'bg-red-100 text-red-700'
+                            }`}
+                          >
+                            {trade.type.toUpperCase()}
+                          </span>
+                        </TableCell>
+                        <TableCell className="font-medium">{trade.symbol}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {trade.quantity.toFixed(6)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          ${trade.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums font-semibold">
+                          ${trade.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -196,29 +301,60 @@ function App() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[15%]">Name</TableHead>
-                  <TableHead className="w-[20%] text-right">Balance</TableHead>
-                  <TableHead className="w-[20%] text-right">Current Price</TableHead>
-                  <TableHead className="w-[20%] text-right">Value</TableHead>
-                  <TableHead className="w-[25%] text-right">P&L</TableHead>
+                  <TableHead className="w-[12%]">Symbol</TableHead>
+                  <TableHead className="w-[15%] text-right">Quantity</TableHead>
+                  <TableHead className="w-[15%] text-right">Avg Buy Price</TableHead>
+                  <TableHead className="w-[15%] text-right">Current Price</TableHead>
+                  <TableHead className="w-[15%] text-right">Cost Basis</TableHead>
+                  <TableHead className="w-[15%] text-right">Value</TableHead>
+                  <TableHead className="w-[13%] text-right">P&L</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoadingPrices ? (
+                {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground">
-                      Loading prices...
+                    <TableCell
+                      colSpan={7}
+                      className="text-center text-muted-foreground"
+                    >
+                      Loading holdings...
+                    </TableCell>
+                  </TableRow>
+                ) : enrichedHoldings.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={7}
+                      className="text-center text-muted-foreground"
+                    >
+                      No holdings yet. Start trading to see your portfolio here.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  holdings.map((holding) => (
-                    <TableRow key={holding.name}>
-                      <TableCell className="font-medium">{holding.name}</TableCell>
-                      <TableCell className="text-right tabular-nums">{holding.balance}</TableCell>
-                      <TableCell className="text-right tabular-nums">${holding.currentPrice.toLocaleString()}</TableCell>
-                      <TableCell className="text-right tabular-nums">${holding.value.toLocaleString()}</TableCell>
-                      <TableCell className={`text-right font-semibold tabular-nums ${holding.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {holding.pnl >= 0 ? '+' : ''}${holding.pnl.toLocaleString()}
+                  enrichedHoldings.map((holding) => (
+                    <TableRow key={holding.symbol}>
+                      <TableCell className="font-medium">
+                        {holding.symbol}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {holding.quantity.toFixed(6)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        ${holding.avgBuyPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        ${holding.currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        ${holding.totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        ${holding.currentValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </TableCell>
+                      <TableCell
+                        className={`text-right font-semibold tabular-nums ${holding.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}
+                      >
+                        {holding.pnl >= 0 ? '+' : '-'}$
+                        {Math.abs(holding.pnl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
                     </TableRow>
                   ))
