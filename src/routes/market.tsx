@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { authClient } from '@/lib/auth-client'
 import { AuthDialog } from '@/components/AuthDialog'
 import { useState } from 'react'
@@ -23,6 +23,7 @@ const instruments = [
 function Market() {
   const { data: session, isPending } = authClient.useSession()
   const [selectedInstrument, setSelectedInstrument] = useState(instruments[0].name)
+  const [aiContent, setAiContent] = useState('')
 
   const getSelectedInstrumentValue = () => {
     return instruments.find(i => i.name === selectedInstrument)?.value || ''
@@ -78,7 +79,7 @@ function Market() {
             <div className="flex gap-6">
               {/* Chart Section */}
               <div className="flex-1 h-96 flex items-center justify-center bg-gray-50 rounded-lg">
-                <p className="text-gray-400">Chart placeholder</p>
+                <p className="text-gray-400">Chart here</p>
               </div>
 
               {/* Buy/Sell Buttons */}
@@ -88,6 +89,42 @@ function Market() {
                 </button>
                 <button className="px-8 py-3 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors">
                   SELL
+                </button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Market Analysis Summary Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Market Analysis Summary</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-gray-600">ai content summarizing market trends for {selectedInstrument} will go here.</p>
+          </CardContent>
+        </Card>
+
+        {/* AI Trading Content Generation */}
+        <Card>
+          <CardHeader>
+            <CardTitle>AI Trading Content Generation</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <textarea
+              value={aiContent}
+              onChange={(e) => setAiContent(e.target.value)}
+              placeholder="AI-generated trading content will appear here..."
+              className="w-full min-h-32 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y"
+            />
+            <div className="flex items-center gap-4">
+              <span className="text-gray-700">Want to post on X?</span>
+              <div className="flex gap-3">
+                <button className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors">
+                  Yes
+                </button>
+                <button className="px-6 py-2 bg-gray-400 text-white font-semibold rounded-lg hover:bg-gray-500 transition-colors">
+                  No
                 </button>
               </div>
             </div>
