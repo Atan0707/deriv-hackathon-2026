@@ -11,6 +11,7 @@ import {
 import { authClient } from '@/lib/auth-client'
 import { AuthDialog } from '@/components/AuthDialog'
 import { useQuery } from '@tanstack/react-query'
+import { ensureWallet } from '@/data/wallet'
 
 export const Route = createFileRoute('/')({
   component: App,
@@ -58,6 +59,14 @@ async function fetchPrices(): Promise<PriceData> {
 
 function App() {
   const { data: session, isPending } = authClient.useSession()
+
+  // Ensure wallet exists for the logged-in user (creates one with 100 balance if missing)
+  const { data: walletData, isLoading: isLoadingWallet } = useQuery({
+    queryKey: ['wallet', session?.user?.id],
+    queryFn: () => ensureWallet({ data: { userId: session!.user.id } }),
+    enabled: !!session?.user?.id,
+    staleTime: 30000,
+  })
 
   // Use TanStack Query with caching
   const { data: priceData, isLoading: isLoadingPrices } = useQuery({
@@ -108,9 +117,21 @@ function App() {
   return (
     <div className="container mx-auto p-6 max-w-7xl">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Networth */}
-        <div className="lg:col-span-1">
-          <Card className="h-full">
+        {/* Left Column - Networth & Wallet */}
+        <div className="lg:col-span-1 space-y-6">
+          <Card>
+            <CardContent className="pt-6 space-y-6">
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Wallet Balance</p>
+                {isLoadingWallet ? (
+                  <p className="text-3xl font-bold text-muted-foreground">Loading...</p>
+                ) : (
+                  <p className="text-3xl font-bold">${walletData?.balance?.toLocaleString() ?? '0'}</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
             <CardContent className="pt-6 space-y-6">
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Networth</p>
