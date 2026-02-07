@@ -1,6 +1,6 @@
 import { createContext, useContext, ReactNode } from 'react'
 import { Card } from '@/components/ui/card'
-import { MessageSquare, ChevronLeft } from 'lucide-react'
+import { MessageSquare, ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 
@@ -34,7 +34,7 @@ const SwarmSidebarInner = () => {
         size="icon"
         variant="outline"
       >
-        {isOpen ? <ChevronLeft className="w-4 h-4" /> : <MessageSquare className="w-4 h-4" />}
+        {isOpen ? <ChevronRight className="w-4 h-4" /> : <MessageSquare className="w-4 h-4" />}
       </Button>
 
       {/* Sidebar - slides in from right */}
@@ -52,14 +52,14 @@ const SwarmSidebarInner = () => {
               <MessageSquare className="w-5 h-5 text-primary" />
               <h2 className="font-semibold">Swarm Assistant</h2>
             </div>
-            <Button
+            {/* <Button
               variant="ghost"
               size="icon"
               onClick={close}
               className="h-8 w-8 hover:bg-gray-100 transition-colors"
             >
-              <ChevronLeft className="w-4 h-4" />
-            </Button>
+              <ChevronRight className="w-4 h-4" />
+            </Button> */}
           </div>
 
           {/* Chat Area */}
