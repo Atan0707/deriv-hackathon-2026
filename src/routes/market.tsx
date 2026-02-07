@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { authClient } from '@/lib/auth-client'
 import { AuthDialog } from '@/components/AuthDialog'
+import { TradingViewChart } from '@/components/TradingViewChart'
 import { useState } from 'react'
 
 export const Route = createFileRoute('/market')({
@@ -78,8 +79,8 @@ function Market() {
           <CardContent className="p-6">
             <div className="flex gap-6">
               {/* Chart Section */}
-              <div className="flex-1 h-96 flex items-center justify-center bg-gray-50 rounded-lg">
-                <p className="text-gray-400">Chart here</p>
+              <div className="flex-1">
+                <TradingViewChart symbol={selectedInstrument} height={384} />
               </div>
 
               {/* Buy/Sell Buttons */}
