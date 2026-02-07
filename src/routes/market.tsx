@@ -11,7 +11,7 @@ import { AuthDialog } from '@/components/AuthDialog'
 import { TradingViewChart } from '@/components/TradingViewChart'
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { executeTrade } from '@/data/trading'
+import { executeTrade, getUserHoldings } from '@/data/trading'
 import { ensureWallet } from '@/data/wallet'
 
 export const Route = createFileRoute('/market')({
@@ -79,6 +79,14 @@ function Market() {
     staleTime: 30000,
   })
 
+  // Fetch user holdings
+  const { data: holdingsData } = useQuery({
+    queryKey: ['holdings', session?.user?.id],
+    queryFn: () => getUserHoldings({ data: { userId: session!.user.id } }),
+    enabled: !!session?.user?.id,
+    staleTime: 30000,
+  })
+
   // Fetch live prices from CoinGecko
   const { data: priceData, isLoading: isLoadingPrices } = useQuery({
     queryKey: ['market-prices'],
@@ -126,6 +134,13 @@ function Market() {
     if (!qty || !currentPrice) return 0
     return qty * currentPrice
   }, [amount, currentPrice])
+
+  // Get holding for selected instrument
+  const selectedHolding = useMemo(() => {
+    if (!holdingsData) return null
+    const ticker = TICKER_MAP[selectedInstrument]
+    return holdingsData.find(h => h.symbol === ticker) ?? null
+  }, [holdingsData, selectedInstrument])
 
   const formatPrice = (price: number) => {
     if (price >= 1) return price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -238,6 +253,7 @@ function Market() {
                       estimatedTotal={estimatedTotal}
                       formatPrice={formatPrice}
                       walletBalance={walletData?.balance ?? 0}
+                      holdingBalance={selectedHolding?.quantity ?? 0}
                       onTrade={() => {
                         if (!session?.user?.id || !currentPrice) return
                         const qty = parseFloat(amount)
@@ -266,6 +282,7 @@ function Market() {
                       estimatedTotal={estimatedTotal}
                       formatPrice={formatPrice}
                       walletBalance={walletData?.balance ?? 0}
+                      holdingBalance={selectedHolding?.quantity ?? 0}
                       onTrade={() => {
                         if (!session?.user?.id || !currentPrice) return
                         const qty = parseFloat(amount)
@@ -340,6 +357,7 @@ function TradingForm({
   estimatedTotal,
   formatPrice,
   walletBalance,
+  holdingBalance,
   onTrade,
   isTrading,
   tradeError,
@@ -354,6 +372,7 @@ function TradingForm({
   estimatedTotal: number
   formatPrice: (n: number) => string
   walletBalance: number
+  holdingBalance: number
   onTrade: () => void
   isTrading: boolean
   tradeError: string | null
@@ -408,9 +427,12 @@ function TradingForm({
               key={pct}
               onClick={() => {
                 if (currentPrice) {
-                  const budget = walletBalance
-                  const qty = (budget * pct / 100) / currentPrice
-                  setAmount(qty.toFixed(6))
+                  // For buy: use wallet balance, for sell: use holding balance
+                  const balance = isBuy ? walletBalance : holdingBalance
+                  const qty = (balance * pct / 100) / (isBuy ? currentPrice : 1)
+                  // For sell, the qty is the percentage of holdings, not divided by price
+                  const finalQty = isBuy ? qty : balance * pct / 100
+                  setAmount(finalQty.toFixed(6))
                 }
               }}
               className="text-xs py-1.5 rounded-md border border-gray-200 hover:bg-gray-50 text-gray-600 font-medium transition-colors cursor-pointer"
