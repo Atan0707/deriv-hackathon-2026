@@ -10,24 +10,75 @@ import {
 } from '@/components/ui/table'
 import { authClient } from '@/lib/auth-client'
 import { AuthDialog } from '@/components/AuthDialog'
+import { useEffect, useState } from 'react'
 
 export const Route = createFileRoute('/')({
   component: App,
 })
 
-// Hardcoded data
-const portfolioData = {
-  networth: 100,
-  holdingsPnl: -50,
-  holdings: [
-    { name: 'sol', balance: 100, currentPrice: 150, value: 15000, pnl: 2500 },
-    { name: 'btc', balance: 0.5, currentPrice: 45000, value: 22500, pnl: 5000 },
-    { name: 'xrp', balance: 5000, currentPrice: 0.5, value: 2500, pnl: -500 },
-  ],
+const COIN_MAP: Record<string, string> = {
+  sol: 'solana',
+  btc: 'bitcoin',
+  xrp: 'ripple',
 }
+
+interface PriceData {
+  [coinId: string]: {
+    usd: number
+  }
+}
+
+interface Holding {
+  name: string
+  balance: number
+  currentPrice: number
+  value: number
+  pnl: number
+}
+
+// Hardcoded holdings - only currentPrice will be fetched from API
+const HOLDINGS_DATA: Omit<Holding, 'currentPrice'>[] = [
+  { name: 'sol', balance: 100, value: 15000, pnl: 2500 },
+  { name: 'btc', balance: 0.5, value: 22500, pnl: 5000 },
+  { name: 'xrp', balance: 5000, value: 2500, pnl: -500 },
+]
 
 function App() {
   const { data: session, isPending } = authClient.useSession()
+  const [holdings, setHoldings] = useState<Holding[]>([])
+  const [isLoadingPrices, setIsLoadingPrices] = useState(true)
+
+  useEffect(() => {
+    async function fetchPrices() {
+      try {
+        const coinIds = Object.values(COIN_MAP).join(',')
+        const apiKey = import.meta.env.VITE_COINGECKO_API_KEY
+        const response = await fetch(
+          `https://api.coingecko.com/api/v3/simple/price?ids=${coinIds}&vs_currencies=usd&x_cg_demo_api_key=${apiKey}`
+        )
+        const data: PriceData = await response.json()
+
+        // Update holdings with current price from API
+        const holdingsWithPrices = HOLDINGS_DATA.map((holding) => {
+          const coinId = COIN_MAP[holding.name]
+          const currentPrice = data[coinId]?.usd || 0
+          return { ...holding, currentPrice }
+        })
+
+        setHoldings(holdingsWithPrices)
+      } catch (error) {
+        console.error('Failed to fetch prices:', error)
+      } finally {
+        setIsLoadingPrices(false)
+      }
+    }
+
+    fetchPrices()
+  }, [])
+
+  // Calculate totals from hardcoded data
+  const networth = HOLDINGS_DATA.reduce((sum, h) => sum + h.value, 0)
+  const holdingsPnl = HOLDINGS_DATA.reduce((sum, h) => sum + h.pnl, 0)
 
   if (isPending) {
     return (
@@ -62,13 +113,21 @@ function App() {
             <CardContent className="pt-6 space-y-6">
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Networth</p>
-                <p className="text-3xl font-bold">${portfolioData.networth}</p>
+                {isLoadingPrices ? (
+                  <p className="text-3xl font-bold text-muted-foreground">Loading...</p>
+                ) : (
+                  <p className="text-3xl font-bold">${networth.toLocaleString()}</p>
+                )}
               </div>
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Holdings P&L</p>
-                <p className={`text-3xl font-bold ${portfolioData.holdingsPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {portfolioData.holdingsPnl >= 0 ? '+' : ''}{portfolioData.holdingsPnl < 0 ? '-' : ''}${Math.abs(portfolioData.holdingsPnl)}
-                </p>
+                {isLoadingPrices ? (
+                  <p className="text-3xl font-bold text-muted-foreground">Loading...</p>
+                ) : (
+                  <p className={`text-3xl font-bold ${holdingsPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {holdingsPnl >= 0 ? '+' : ''}{holdingsPnl < 0 ? '-' : ''}${Math.abs(holdingsPnl).toLocaleString()}
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -123,17 +182,25 @@ function App() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {portfolioData.holdings.map((holding) => (
-                  <TableRow key={holding.name}>
-                    <TableCell className="font-medium">{holding.name}</TableCell>
-                    <TableCell className="text-right tabular-nums">{holding.balance}</TableCell>
-                    <TableCell className="text-right tabular-nums">${holding.currentPrice.toLocaleString()}</TableCell>
-                    <TableCell className="text-right tabular-nums">${holding.value.toLocaleString()}</TableCell>
-                    <TableCell className={`text-right font-semibold tabular-nums ${holding.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {holding.pnl >= 0 ? '+' : ''}${holding.pnl.toLocaleString()}
+                {isLoadingPrices ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                      Loading prices...
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : (
+                  holdings.map((holding) => (
+                    <TableRow key={holding.name}>
+                      <TableCell className="font-medium">{holding.name}</TableCell>
+                      <TableCell className="text-right tabular-nums">{holding.balance}</TableCell>
+                      <TableCell className="text-right tabular-nums">${holding.currentPrice.toLocaleString()}</TableCell>
+                      <TableCell className="text-right tabular-nums">${holding.value.toLocaleString()}</TableCell>
+                      <TableCell className={`text-right font-semibold tabular-nums ${holding.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {holding.pnl >= 0 ? '+' : ''}${holding.pnl.toLocaleString()}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </CardContent>
