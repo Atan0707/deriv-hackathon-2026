@@ -19,6 +19,17 @@ interface MyRouterContext {
   queryClient: QueryClient
 }
 
+const NotFound = () => {
+  return (
+    <div className="container mx-auto p-6 max-w-7xl flex items-center justify-center min-h-[60vh]">
+      <div className="text-center space-y-4">
+        <h1 className="text-4xl font-bold">404</h1>
+        <p className="text-muted-foreground">Page not found</p>
+      </div>
+    </div>
+  )
+}
+
 export const Route = createRootRouteWithContext<MyRouterContext>()({
   head: () => ({
     meta: [
@@ -42,6 +53,7 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
   }),
 
   shellComponent: RootDocument,
+  notFoundComponent: NotFound,
 })
 
 function RootDocument({ children }: { children: React.ReactNode }) {
